@@ -28,6 +28,48 @@ struct AgentSession {
     var effectiveLastModified: Date { children.reduce(lastModified) { max($0, $1.lastModified) } }
 }
 
+// MARK: - Dismissed sessions
+
+/// User-dismissed session ids (transcript paths), persisted so old sessions
+/// stay hidden across restarts. A dismissed session that goes live again is
+/// automatically un-dismissed — dismissal means "done with this", not "never".
+final class DismissStore {
+    static let shared = DismissStore()
+    private let url = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".config/agent-notch/dismissed")
+    private var ids: Set<String>
+    private let queue = DispatchQueue(label: "agent-notch.dismiss")
+
+    private init() {
+        ids = Set((try? String(contentsOf: url, encoding: .utf8))?
+            .split(whereSeparator: \.isNewline).map(String.init) ?? [])
+    }
+
+    func contains(_ id: String) -> Bool { queue.sync { ids.contains(id) } }
+
+    func dismiss(_ id: String) {
+        queue.sync { ids.insert(id); save() }
+    }
+
+    func restore(_ id: String) {
+        queue.sync { if ids.remove(id) != nil { save() } }
+    }
+
+    /// Drop entries whose transcript no longer exists so the file stays small.
+    func compact(keeping existing: Set<String>) {
+        queue.sync {
+            let pruned = ids.intersection(existing)
+            if pruned.count != ids.count { ids = pruned; save() }
+        }
+    }
+
+    private func save() {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        try? ids.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
 // MARK: - Process discovery
 // Ported from open-vibe-island's ActiveAgentProcessDiscovery: "a session IS a
 // running agent process in a terminal." `ps` finds agent processes (a TTY is
@@ -192,6 +234,9 @@ final class SessionScanner {
         let recent: (AgentSession) -> Bool = { $0.isLive || Date().timeIntervalSince($0.lastModified) < 6 * 3600 }
         var sessions = scanClaude(live: live, cwdCounts: claudeCwdCounts).filter(recent)
             + groupCodex(scanCodex(live: live).filter(recent))
+        // A dismissed session that comes back to life earns its row back.
+        for s in sessions where s.anyLive { DismissStore.shared.restore(s.id) }
+        sessions.removeAll { DismissStore.shared.contains($0.id) && !$0.anyLive }
         sessions.sort { $0.effectiveLastModified > $1.effectiveLastModified }
         return sessions
     }
@@ -562,6 +607,13 @@ final class SessionListController: NSViewController {
         onLayoutChange?()
     }
 
+    @objc private func dismissSession(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue else { return }
+        DismissStore.shared.dismiss(id)
+        sessions.removeAll { $0.id == id }  // didSet rebuilds; scan keeps it out
+        onLayoutChange?()
+    }
+
     private func childRow(for s: AgentSession) -> NSView {
         let icon = DitherIconView()
         icon.running = s.isBusy
@@ -611,7 +663,19 @@ final class SessionListController: NSViewController {
         let tag = label("\(s.model.isEmpty ? s.title : s.model) · \(relative(s.lastModified))", size: 10,
                         color: (s.anyBusy ? NSColor.systemBlue : s.anyLive ? .secondaryLabelColor : .systemGreen).withAlphaComponent(0.75), bold: false)
         tag.setContentCompressionResistancePriority(.required, for: .horizontal)
-        let top = NSStackView(views: [icon, title, NSView(), tag])
+        var topViews: [NSView] = [icon, title, NSView(), tag]
+        // Finished sessions can be dismissed; live ones keep their row.
+        if !s.anyLive {
+            let close = NSButton(title: "✕", target: self, action: #selector(dismissSession(_:)))
+            close.isBordered = false
+            close.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold)
+            close.contentTintColor = .tertiaryLabelColor
+            close.identifier = NSUserInterfaceItemIdentifier(s.id)
+            close.toolTip = "Dismiss this session"
+            close.setContentCompressionResistancePriority(.required, for: .horizontal)
+            topViews.append(close)
+        }
+        let top = NSStackView(views: topViews)
         top.orientation = .horizontal
         top.translatesAutoresizingMaskIntoConstraints = false
 
