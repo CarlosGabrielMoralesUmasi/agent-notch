@@ -18,8 +18,11 @@ struct AgentSession {
     var nickname: String?
     var children: [AgentSession] = []
     var isLive: Bool = false  // process alive (from discovery, never mtime)
-    // hybrid: busy = alive AND writing; quiet-while-alive is idle, not done
-    var isBusy: Bool { isLive && Date().timeIntervalSince(lastModified) < 30 }
+    // last user/assistant entry — housekeeping writes (away_summary etc.)
+    // bump the file mtime but must not count as activity
+    var lastActivity: Date?
+    // hybrid: busy = alive AND conversing; quiet-while-alive is idle, not done
+    var isBusy: Bool { isLive && Date().timeIntervalSince(lastActivity ?? lastModified) < 30 }
     var anyLive: Bool { isLive || children.contains { $0.isLive } }
     var anyBusy: Bool { isBusy || children.contains { $0.isBusy } }
     var effectiveLastModified: Date { children.reduce(lastModified) { max($0, $1.lastModified) } }
@@ -220,6 +223,7 @@ final class SessionScanner {
                 var sess = AgentSession(id: f.path, kind: .claude, title: projName,
                                         snippet: info.snippet, model: info.model, lastModified: mtime)
                 sess.prompt = info.prompt
+                sess.lastActivity = info.activity
                 sess.isLive = live.contains(f.path) || idx < liveByCwd
                 sess.children = claudeSubagents(sessionFile: f, parentLive: sess.isLive)
                 out.append(sess)
@@ -266,6 +270,7 @@ final class SessionScanner {
             // subagents share the parent process (open-vibe-island tracks them
             // as parent metadata) — liveness inherits, busyness from writes
             kid.isLive = parentLive
+            kid.lastActivity = info.activity
             kids.append(kid)
         }
         return kids.sorted { $0.lastModified > $1.lastModified }
@@ -285,27 +290,42 @@ final class SessionScanner {
         return (title, id, parentID, nickname)
     }
 
-    /// Read the tail of a jsonl transcript: last human-readable text + model name.
-    private func tailInfo(of file: URL) -> (snippet: String, model: String, prompt: String) {
-        guard let fh = try? FileHandle(forReadingFrom: file) else { return ("", "", "") }
+    private static let isoParser: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    /// Read the tail of a jsonl transcript: last human-readable text + model
+    /// name + timestamp of the last conversational (user/assistant) entry.
+    private func tailInfo(of file: URL) -> (snippet: String, model: String, prompt: String, activity: Date?) {
+        guard let fh = try? FileHandle(forReadingFrom: file) else { return ("", "", "", nil) }
         defer { try? fh.close() }
         let size = (try? fh.seekToEnd()) ?? 0
         let readLen: UInt64 = min(size, 131_072)
         try? fh.seek(toOffset: size - readLen)
         guard let data = try? fh.readToEnd(),
-              let text = String(data: data, encoding: .utf8) else { return ("", "", "") }
+              let text = String(data: data, encoding: .utf8) else { return ("", "", "", nil) }
         var snippet = "", model = "", prompt = ""
+        var activity: Date?
         for line in text.split(separator: "\n").reversed() {
             if model.isEmpty, let r = line.range(of: #""model":"([^"]+)""#, options: .regularExpression) {
                 model = String(line[r].dropFirst(9).dropLast(1))
                 model = model.replacingOccurrences(of: "claude-", with: "")
             }
-            if snippet.isEmpty || prompt.isEmpty,
+            if snippet.isEmpty || prompt.isEmpty || activity == nil,
                let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] {
                 if snippet.isEmpty, let s = extractText(obj) { snippet = s }
                 if prompt.isEmpty, let p = extractUserPrompt(obj) { prompt = p }
+                // "system" entries (away_summary, compaction notes…) are
+                // housekeeping, not activity
+                if activity == nil, let ty = obj["type"] as? String,
+                   ty == "user" || ty == "assistant",
+                   let ts = obj["timestamp"] as? String {
+                    activity = Self.isoParser.date(from: ts)
+                }
             }
-            if !snippet.isEmpty && !model.isEmpty && !prompt.isEmpty { break }
+            if !snippet.isEmpty && !model.isEmpty && !prompt.isEmpty && activity != nil { break }
         }
         if model.isEmpty, size > readLen {
             // model can appear only early in long transcripts — check the head too
@@ -317,7 +337,7 @@ final class SessionScanner {
                     .replacingOccurrences(of: "claude-", with: "")
             }
         }
-        return (snippet, model, prompt)
+        return (snippet, model, prompt, activity)
     }
 
     /// The user's own message, if this line is one.
