@@ -1,34 +1,37 @@
 # Agent Notch
 
-Minimalist macOS notch status for **Claude Code** and **Codex** agents, inspired by @marclou / @edwardluox.
+Your AI agents, living next to the MacBook notch.
 
-A black window hugs the notch (visible on every space, including fullscreen):
+While **Claude Code** or **Codex** is working, its mascot walks beside the notch — the Claude Code banner critter for Claude, the official Codex pet for Codex. When everything's done, they're replaced by a calm green blob. Click to open a panel of your sessions, grouped by prompt, with every subagent tucked under a dropdown.
 
-- **Pac-Man chomping (yellow)** beside the notch — at least one agent is currently running
-- **Big green circle** — all agents done, time to prompt again
-- **Hover** the notch — it expands downward listing recent sessions (running `ᗧ···` / done `●`), with project name, last message snippet, source (Claude/Codex) and age
-- **Right-click** — Quit
+<p align="center"><img src="docs/indicator.gif" width="520" alt="Claude Code mascot and Codex pet walking beside the notch" /></p>
+
+## The panel
+
+One row per session, titled by the tool, led by **your** latest prompt — not the agents' chatter. Subagents (Codex's philosopher swarm, Claude's Task agents) fold under a `▸ N subagents` dropdown. Running rows animate; finished rows get a green pixel checkmark. The tag on the right is the actual model that session runs.
+
+<p align="center"><img src="docs/panel.png" width="600" alt="Session panel with subagent dropdowns" /></p>
 
 ## How it works
 
-No hooks or APIs — it polls transcript files every 2 s:
+No hooks, no APIs, no accounts — it just polls the transcript files both CLIs already write, every 2 s:
 
-- Claude Code: `~/.claude/projects/*/*.jsonl`
-- Codex: `~/.codex/sessions/**/*.jsonl`
+- Claude Code: `~/.claude/projects/*/*.jsonl` (+ `<session>/subagents/agent-*.jsonl`)
+- Codex: `~/.codex/sessions/**/*.jsonl`, grouped by `parent_thread_id`
 
-A session whose transcript was modified in the last 20 s counts as *running*. Sessions idle over 6 h drop off the list.
+A transcript modified in the last 20 s counts as *running*. Sessions idle over 6 h drop off.
+
+The collapsed window is transparent and fully click-through except the tiny indicator zone, so it never blocks menu items or apps underneath. In fullscreen spaces the bar spans the whole top edge.
 
 ## Codex pet
 
-The Codex working animation uses the official Codex Pets spritesheets (in `pets/`).
-Switch pets with:
+The Codex animation uses the official Codex Pets spritesheets (in `pets/`). Switch pets with:
 
 ```sh
 echo dewey > ~/.config/agent-notch/pet
 ```
 
-Options: `codex`, `dewey`, `fireball`, `rocky`, `seedy`, `stacky`, `bsod`, `null-signal`.
-Takes effect within a couple of seconds, no restart needed.
+Options: `codex`, `dewey`, `fireball`, `rocky`, `seedy`, `stacky`, `bsod`, `null-signal`. Takes effect within a couple of seconds, no restart needed. (Spritesheets © OpenAI, from their public pets CDN.)
 
 ## Build & run
 
@@ -37,4 +40,6 @@ swiftc -O main.swift -o AgentNotch
 ./AgentNotch &
 ```
 
-It is registered as a Login Item (System Settings → General → Login Items → AgentNotch), so it starts automatically. Note: the login item points at the binary's current path — rebuild in place rather than moving it.
+- **Click** the indicator → open the panel. Click anywhere → close.
+- To start at login: System Settings → General → Login Items → add `AgentNotch`.
+- Requires macOS 12+ (built and tested on a notched MacBook; on notchless displays it centers on a virtual notch).
