@@ -10,7 +10,7 @@ While **Claude Code** or **Codex** is working, its mascot walks beside the notch
 
 One row per session, titled by the tool, led by **your** latest prompt — not the agents' chatter. Subagents (Codex's philosopher swarm, Claude's Task agents) fold under a `▸ N subagents` dropdown. Running rows show their mascot walking in place; finished rows get a green pixel checkmark. The tag on the right is the actual model that session runs.
 
-<p align="center"><img src="docs/panel.png" width="600" alt="Session panel with subagent dropdowns" /></p>
+<p align="center"><img src="docs/panel-demo.gif" width="600" alt="Session panel with walking mascots and subagent dropdowns" /></p>
 
 ## How it works
 
