@@ -592,6 +592,16 @@ final class SessionListController: NSViewController {
                 }
             }
         }
+        // Batch cleanup once two or more finished sessions accumulate.
+        if sessions.filter({ !$0.anyLive }).count > 1 {
+            let clear = NSButton(title: "✕ clear finished", target: self, action: #selector(dismissAllFinished(_:)))
+            clear.isBordered = false
+            clear.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold)
+            clear.contentTintColor = .tertiaryLabelColor
+            let wrap = NSStackView(views: [clear])
+            wrap.edgeInsets = NSEdgeInsets(top: 2, left: 4, bottom: 0, right: 0)
+            stack.addArrangedSubview(wrap)
+        }
         if animTimer == nil {
             animTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
                 guard let self else { return }
@@ -611,6 +621,12 @@ final class SessionListController: NSViewController {
         guard let id = sender.identifier?.rawValue else { return }
         DismissStore.shared.dismiss(id)
         sessions.removeAll { $0.id == id }  // didSet rebuilds; scan keeps it out
+        onLayoutChange?()
+    }
+
+    @objc private func dismissAllFinished(_ sender: NSButton) {
+        for s in sessions where !s.anyLive { DismissStore.shared.dismiss(s.id) }
+        sessions.removeAll { !$0.anyLive }
         onLayoutChange?()
     }
 
@@ -829,9 +845,18 @@ final class IndicatorView: NSView {
     private static var spriteCache: [String: NSImage] = [:]
     static var codexSprite: NSImage? {
         if let img = spriteCache[currentPetID] { return img }
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/GitHub/agent-notch/pets/pet-\(currentPetID).webp").path
-        guard let img = NSImage(contentsOfFile: path) else { return nil }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        var candidates = [
+            home.appendingPathComponent(".config/agent-notch/pets/pet-\(currentPetID).webp").path,
+            home.appendingPathComponent("Documents/GitHub/agent-notch/pets/pet-\(currentPetID).webp").path,
+        ]
+        // Wherever the binary lives (repo checkout), pets/ sits beside it.
+        if let exe = Bundle.main.executableURL?.resolvingSymlinksInPath() {
+            candidates.insert(exe.deletingLastPathComponent()
+                .appendingPathComponent("pets/pet-\(currentPetID).webp").path, at: 0)
+        }
+        guard let path = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }),
+              let img = NSImage(contentsOfFile: path) else { return nil }
         spriteCache[currentPetID] = img
         return img
     }

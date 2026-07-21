@@ -1,4 +1,16 @@
-# Agent Notch
+# Agent Notch+
+
+Your AI agents, living next to the MacBook notch — a friendly fork of [realfishsam/agent-notch](https://github.com/realfishsam/agent-notch) with quality-of-life improvements.
+
+## What's new in this fork
+
+- **Dismiss finished sessions**: each finished row has a ✕ button. Dismissed sessions are persisted in `~/.config/agent-notch/dismissed`, so they stay gone across restarts. If a dismissed session comes back to life, it automatically reappears.
+- **Clear all finished**: when two or more finished sessions pile up, a `✕ clear finished` button appears at the bottom of the panel.
+- **Portable pet loading**: Codex pet spritesheets now load from the binary's own `pets/` directory or `~/.config/agent-notch/pets/`, instead of a hardcoded `~/Documents/GitHub/agent-notch` checkout path.
+
+Everything below is inherited from the original project. Credit for the design and core goes to [@realfishsam](https://github.com/realfishsam) (MIT license preserved).
+
+---
 
 Your AI agents, living next to the MacBook notch.
 
